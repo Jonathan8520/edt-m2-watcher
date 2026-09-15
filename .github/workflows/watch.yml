@@ -1,0 +1,61 @@
+name: Surveillance EDT
+
+on:
+  schedule:
+    - cron: "7,27,47 4-20 * * *"   # toutes les 20 min, 6h-22h heure de Paris (été)
+    - cron: "17 21,23,1,3 * * *"   # toutes les 2 h la nuit
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: edt-watch
+  cancel-in-progress: false
+
+env:
+  SHEET_ID: ID_DU_SHEET
+  WATCH_TAGS: IBI,SBI
+
+jobs:
+  watch:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout de la branche datas
+        uses: actions/checkout@v7
+        with:
+          ref: datas
+          path: datas
+
+      - name: Relevé du sheet
+        id: scan
+        run: python3 -m watcher scan --state datas/state --out "$RUNNER_TEMP/watch"
+
+      - name: Commit de l'état
+        id: commit
+        if: steps.scan.outputs.changed == 'true'
+        working-directory: datas
+        run: |
+          git config user.name "Jonathan8520"
+          git config user.email "103694268+Jonathan8520@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -q -F "$RUNNER_TEMP/watch/commit_msg.txt"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # notification avant le push : si Discord échoue, l'état n'est pas poussé et le prochain passage renvoie
+      - name: Notification Discord
+        if: steps.scan.outputs.notify == 'true'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_ROLES: ${{ vars.DISCORD_ROLES }}
+          COMMIT_SHA: ${{ steps.commit.outputs.sha }}
+        run: python3 -m watcher notify --report "$RUNNER_TEMP/watch/report.json"
+
+      - name: Push sur datas
+        if: steps.commit.outputs.sha != ''
+        working-directory: datas
+        run: git push -q origin HEAD:datas
