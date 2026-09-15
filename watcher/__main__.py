@@ -3,6 +3,8 @@ import argparse
 import csv
 import json
 import os
+import re
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -21,42 +23,53 @@ def save_grid(path, grid):
         csv.writer(f, lineterminator="\n").writerows(grid)
 
 
+def write_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+
+
 def gh_output(**kv):
-    target = os.environ.get("GITHUB_OUTPUT")
     lines = [f"{k}={v}" for k, v in kv.items()]
+    target = os.environ.get("GITHUB_OUTPUT")
     if target:
         with open(target, "a", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
     print(*lines, sep="\n")
 
 
-def summary(report):
+def summary(reports):
     target = os.environ.get("GITHUB_STEP_SUMMARY")
     if not target:
         return
-    out = [f"### {report['title']} : {report['status']}"]
-    for ev in report["events"]:
-        out.append(f"**{ev['type']} · {ev['tab']}**")
-        out += [f"- {discord.format_item(it)}" for it in ev.get("items", [])]
+    out = []
+    for rep in reports:
+        out.append(f"### {rep['title']} : {rep['status']}")
+        for ev in rep["events"]:
+            out.append(f"**{ev['type']} · {ev['tab']}**")
+            out += [f"- {discord.format_item(it)}" for it in ev.get("items", [])]
     with open(target, "a", encoding="utf-8") as f:
         f.write("\n".join(out) + "\n")
 
 
-def cmd_scan(args):
-    sheet_id = os.environ["SHEET_ID"]
-    tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
-    state = Path(args.state)
+def migrate_legacy(root, sheet_ids):
+    """Ancien emplacement state/meta.json -> state/<sheet_id>/meta.json."""
+    legacy = root / "meta.json"
+    if not legacy.exists():
+        return False
+    sid = json.loads(legacy.read_text(encoding="utf-8")).get("sheet_id")
+    if sid not in sheet_ids or (root / sid).exists():
+        return False
+    (root / sid).mkdir(parents=True)
+    shutil.move(str(legacy), str(root / sid / "meta.json"))
+    if (root / "tabs").exists():
+        shutil.move(str(root / "tabs"), str(root / sid / "tabs"))
+    return True
+
+
+def scan_sheet(sheet_id, state, tags):
+    """Retourne (fichiers_modifiés, rapport|None, résumé_commit|None) pour un sheet."""
     meta_path = state / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else None
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-
-    def finish(report, message):
-        (out / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
-        (out / "commit_msg.txt").write_text(message + "\n", encoding="utf-8")
-        summary(report)
-        gh_output(changed="true", notify="true")
-
     try:
         title, tabs = sheets.list_tabs(sheet_id)
         grids = {}
@@ -64,19 +77,16 @@ def cmd_scan(args):
             grids[gid] = sheets.fetch_tab(sheet_id, gid)
             time.sleep(0.5)
     except sheets.TransientError as e:
-        print(f"::warning::Lecture du sheet impossible pour ce passage : {e}")
-        gh_output(changed="false", notify="false")
-        return
+        print(f"::warning::{sheet_id} : lecture impossible pour ce passage : {e}")
+        return False, None, None
     except sheets.AccessLost as e:
         if meta and not meta.get("access_lost"):
             meta["access_lost"] = True
-            meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-            finish({"status": "access_lost", "title": meta["title"], "reason": str(e), "events": []},
-                   f"Sheet inaccessible : {e}")
-        else:
-            print(f"::warning::Sheet toujours inaccessible : {e}")
-            gh_output(changed="false", notify="false")
-        return
+            write_json(meta_path, meta)
+            return True, {"status": "access_lost", "title": meta["title"], "reason": str(e), "events": []}, \
+                f"{meta['title']} inaccessible"
+        print(f"::warning::{sheet_id} : toujours inaccessible : {e}")
+        return False, None, None
 
     new_meta = {"sheet_id": sheet_id, "title": title, "access_lost": False,
                 "tabs": [{"gid": gid, "name": name} for gid, name in tabs]}
@@ -84,10 +94,9 @@ def cmd_scan(args):
     if meta is None:
         for gid, _ in tabs:
             save_grid(state / "tabs" / f"{gid}.csv", grids[gid])
-        meta_path.write_text(json.dumps(new_meta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        finish({"status": "init", "title": title, "tabs": [n for _, n in tabs], "events": []},
-               f"Premier relevé : {len(tabs)} onglets")
-        return
+        write_json(meta_path, new_meta)
+        return True, {"status": "init", "title": title, "tabs": [n for _, n in tabs], "events": []}, \
+            f"{title} : premier relevé ({len(tabs)} onglets)"
 
     old_names = {t["gid"]: t["name"] for t in meta["tabs"]}
     events = []
@@ -113,54 +122,79 @@ def cmd_scan(args):
             path.unlink(missing_ok=True)
 
     restored = bool(meta.get("access_lost"))
-    if not events and not restored and new_meta == meta:
-        print("Aucun changement.")
-        gh_output(changed="false", notify="false")
-        return
-    meta_path.write_text(json.dumps(new_meta, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    report = {"status": "access_restored" if restored else "changes", "title": title, "events": events}
+    if new_meta == meta and not events:
+        return False, None, None
+    write_json(meta_path, new_meta)
     if not events and not restored:
-        # seul le titre ou l'ordre des onglets a bougé : on enregistre sans notifier
-        (out / "commit_msg.txt").write_text("Métadonnées mises à jour\n", encoding="utf-8")
-        gh_output(changed="true", notify="false")
-        return
+        return True, None, f"{title} : métadonnées"
     labels = {"tab_added": "nouvel onglet", "tab_removed": "onglet supprimé", "tab_renamed": "renommé"}
     parts = [f"{ev['tab']} : " + (f"{len(ev['items'])} changement(s)" if ev["type"] == "cells" else labels[ev["type"]])
              for ev in events]
-    finish(report, ("Accès rétabli. " if restored else "") + (", ".join(parts) or "rien d'autre"))
+    report = {"status": "access_restored" if restored else "changes", "title": title, "events": events}
+    return True, report, ("Accès rétabli. " if restored else "") + ", ".join(parts)
 
 
-def parse_roles(raw):
-    raw = (raw or "").strip()
-    if not raw:
-        return {}
-    if raw.startswith("{"):
-        return {k.upper(): str(v) for k, v in json.loads(raw).items()}
-    roles = {}
-    for part in raw.replace(";", ",").split(","):
-        if "=" in part:
-            k, v = part.split("=", 1)
-            roles[k.strip().upper()] = "".join(ch for ch in v if ch.isdigit())
-    return roles
+def sheet_ids_from_env():
+    raw = os.environ.get("SHEET_IDS") or os.environ.get("SHEET_ID", "")
+    ids = [x for x in re.split(r"[\s,;]+", raw) if x]
+    if not ids:
+        sys.exit("SHEET_IDS vide")
+    return ids
+
+
+def cmd_scan(args):
+    ids = sheet_ids_from_env()
+    tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
+    root, out = Path(args.state), Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    changed = migrate_legacy(root, ids)
+    reports, messages = [], ["Migration de l'état par sheet"] if changed else []
+    for sid in ids:
+        ch, rep, msg = scan_sheet(sid, root / sid, tags)
+        changed |= ch
+        if rep:
+            reports.append(rep)
+        if msg:
+            messages.append(msg)
+    (out / "report.json").write_text(json.dumps({"sheets": reports}, ensure_ascii=False, indent=1), encoding="utf-8")
+    (out / "commit_msg.txt").write_text(" | ".join(messages) + "\n", encoding="utf-8")
+    summary(reports)
+    if not changed:
+        print("Aucun changement.")
+    gh_output(changed=str(changed).lower(), notify=str(bool(reports)).lower())
+
+
+def parse_pings(raw):
+    """IBI=<@&123>,SBI=<@456>  (un nombre seul = rôle)."""
+    pings = {}
+    for part in re.split(r"[,;\n]+", (raw or "").strip()):
+        if "=" not in part:
+            continue
+        tag, value = (x.strip() for x in part.split("=", 1))
+        m = re.search(r"<@(&|!)?(\d+)>", value)
+        if m:
+            pings[tag.upper()] = ("role" if m.group(1) == "&" else "user", m.group(2))
+        elif value.isdigit():
+            pings[tag.upper()] = ("role", value)
+    return pings
 
 
 def cmd_notify(args):
     report = json.loads(Path(args.report).read_text(encoding="utf-8"))
     webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
-    roles = parse_roles(os.environ.get("DISCORD_ROLES"))
-    sha = os.environ.get("COMMIT_SHA", "").strip()
-    repo = os.environ.get("GITHUB_REPOSITORY")
+    pings = parse_pings(os.environ.get("DISCORD_PINGS") or os.environ.get("DISCORD_ROLES"))
+    sha, repo = os.environ.get("COMMIT_SHA", "").strip(), os.environ.get("GITHUB_REPOSITORY")
     commit_url = f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{repo}/commit/{sha}" if sha and repo else None
-    messages = discord.build_messages(report, roles, commit_url, args.note)
+    payloads = [p for rep in report["sheets"] for p in discord.build_messages(rep, pings, commit_url, args.note)]
     if not webhook:
         print("::warning::Secret DISCORD_WEBHOOK_URL absent : notification ignorée")
-        print(json.dumps(messages, ensure_ascii=False, indent=1))
+        print(json.dumps(payloads, ensure_ascii=False, indent=1))
         return
-    for i, payload in enumerate(messages):
+    for i, payload in enumerate(payloads):
         if i:
             time.sleep(1)
         discord.send(webhook, payload)
-    print(f"{len(messages)} message(s) envoyé(s)")
+    print(f"{len(payloads)} message(s) envoyé(s)")
 
 
 def main():

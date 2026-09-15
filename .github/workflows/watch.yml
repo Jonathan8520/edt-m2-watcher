@@ -14,7 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SHEET_ID: ID_DU_SHEET
+  # plusieurs sheets possibles (variable SHEET_IDS, séparés par des virgules), chacun avec son état dans datas/state/<id>
+  SHEET_IDS: ${{ vars.SHEET_IDS || 'ID_DU_SHEET' }}
   WATCH_TAGS: IBI,SBI
 
 jobs:
@@ -51,7 +52,7 @@ jobs:
         if: steps.scan.outputs.notify == 'true'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_ROLES: ${{ vars.DISCORD_ROLES }}
+          DISCORD_PINGS: ${{ vars.DISCORD_PINGS }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
         run: python3 -m watcher notify --report "$RUNNER_TEMP/watch/report.json"
 

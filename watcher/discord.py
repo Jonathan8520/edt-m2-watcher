@@ -69,7 +69,7 @@ def build_embeds(report):
 
 
 def _embed_len(e):
-    return len(e.get("title", "")) + len(e.get("description", ""))
+    return len(e.get("title", "")) + len(e.get("description", "")) + len(e.get("footer", {}).get("text", ""))
 
 
 def report_tags(report):
@@ -83,8 +83,11 @@ def report_tags(report):
     return sorted(tags)
 
 
-def build_messages(report, roles, commit_url=None, note=None):
-    """Transforme un rapport en payloads webhook (pings dans le 1er message uniquement)."""
+def build_messages(report, pings, commit_url=None, note=None):
+    """Transforme le rapport d'un sheet en payloads webhook (pings dans le 1er message uniquement).
+
+    pings : {"SBI": ("role", "123"), "IBI": ("user", "456")}
+    """
     status = report["status"]
     if status == "init":
         text = f"👀 Surveillance active sur **{esc(report['title'])}** : {len(report['tabs'])} onglets"
@@ -94,7 +97,16 @@ def build_messages(report, roles, commit_url=None, note=None):
                             "Je réessaie à chaque passage.", "allowed_mentions": {"parse": []}}]
 
     tags = report_tags(report)
-    mentions = [f"<@&{roles[t]}>" if t in roles else f"@{t.lower()}" for t in tags]
+    mentions, roles, users = [], [], []
+    for t in tags:
+        if t not in pings:
+            mention = f"@{t.lower()}"
+        else:
+            kind, id_ = pings[t]
+            mention = f"<@&{id_}>" if kind == "role" else f"<@{id_}>"
+            (roles if kind == "role" else users).append(id_)
+        if mention not in mentions:
+            mentions.append(mention)
     head = " ".join(mentions)
     if status == "access_restored":
         head = ("✅ Sheet de nouveau accessible. " + head).strip()
@@ -103,8 +115,10 @@ def build_messages(report, roles, commit_url=None, note=None):
     if commit_url:
         head += f" · [diff](<{commit_url}>)"
 
+    footer = {"text": report["title"][:200]}
     messages, current, size = [], [], 0
     for e in build_embeds(report):
+        e["footer"] = footer
         if current and (len(current) >= EMBEDS_MAX or size + _embed_len(e) > MESSAGE_MAX):
             messages.append({"embeds": current})
             current, size = [], 0
@@ -115,8 +129,9 @@ def build_messages(report, roles, commit_url=None, note=None):
     if not messages:
         messages = [{}]
     messages[0]["content"] = head[:2000]
+    allowed = {"parse": [], "roles": sorted(set(roles)), "users": sorted(set(users))}
     for m in messages:
-        m["allowed_mentions"] = {"parse": [], "roles": [roles[t] for t in tags if t in roles]}
+        m["allowed_mentions"] = allowed
     return messages
 
 
