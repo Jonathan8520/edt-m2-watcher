@@ -189,7 +189,14 @@ def cmd_notify(args):
     pings = parse_pings(os.environ.get("DISCORD_PINGS") or os.environ.get("DISCORD_ROLES"))
     sha, repo = os.environ.get("COMMIT_SHA", "").strip(), os.environ.get("GITHUB_REPOSITORY")
     commit_url = f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{repo}/commit/{sha}" if sha and repo else None
-    payloads = [p for rep in report["sheets"] for p in discord.build_messages(rep, pings, commit_url, args.note)]
+    links, gist_id = {}, os.environ.get("ICS_GIST_ID", "").strip()
+    if gist_id and args.ics_dir and repo:
+        tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
+        for path in sorted(Path(args.ics_dir).glob("*.ics")):
+            for t in tags:
+                if re.search(rf"(?<![A-Za-z]){t}(?![A-Za-z])", path.name, re.I):
+                    links[t] = f"https://gist.githubusercontent.com/{repo.split('/')[0]}/{gist_id}/raw/{path.name}"
+    payloads = [p for rep in report["sheets"] for p in discord.build_messages(rep, pings, commit_url, args.note, links)]
     if not webhook:
         print("::warning::Secret DISCORD_WEBHOOK_URL absent : notification ignorée")
         print(json.dumps(payloads, ensure_ascii=False, indent=1))
@@ -270,6 +277,7 @@ def main():
     n = sub.add_parser("notify")
     n.add_argument("--report", required=True)
     n.add_argument("--note")
+    n.add_argument("--ics-dir", help="dossier des .ics pour ajouter les liens d'abonnement au message")
     i = sub.add_parser("ics")
     i.add_argument("--state", required=True)
     i.add_argument("--out", required=True)

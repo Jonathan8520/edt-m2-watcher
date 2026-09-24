@@ -54,7 +54,8 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_PINGS: ${{ vars.DISCORD_PINGS }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
-        run: python3 -m watcher notify --report "$RUNNER_TEMP/watch/report.json"
+          ICS_GIST_ID: ${{ vars.ICS_GIST_ID }}
+        run: python3 -m watcher notify --report "$RUNNER_TEMP/watch/report.json" --ics-dir datas/ics
 
       - name: Push sur datas
         if: steps.commit.outputs.sha != ''
