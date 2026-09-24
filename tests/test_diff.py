@@ -149,3 +149,14 @@ class DiscordTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SummaryTests(unittest.TestCase):
+    def test_identical_edits_are_grouped(self):
+        items = [{"kind": "cell", "tags": ["SBI"], "context": f"mardi {d} mars 2027 · 9h30-12h30",
+                  "old": "GO1 (Paul)", "new": "GO1 (Paul MARTIN)"} for d in (2, 9)]
+        items.append({"kind": "cell", "tags": ["SBI"], "context": "lundi 26 avril 2027 · 9h30-12h30",
+                      "old": "partiel GO1 (Paul) + ISI4", "new": "partiel GO1 (Paul MARTIN) + ISI4"})
+        items.append({"kind": "cell", "tags": ["SBI"], "context": "jeudi 1 avril 2027 · 14h-17h", "old": "ISI8", "new": ""})
+        report = {"status": "changes", "title": "T", "events": [{"type": "cells", "tab": "t", "url": "x", "items": items}]}
+        self.assertEqual(discord.summarize(report), "(Paul) → (Paul MARTIN) (3 créneaux) ; ISI8 retiré (1 avr.)")

@@ -1,6 +1,8 @@
 """Mise en forme des changements et envoi au webhook Discord."""
+import difflib
 import json
 import re
+from collections import OrderedDict
 import time
 import urllib.error
 import urllib.request
@@ -9,6 +11,9 @@ DESC_MAX = 3800      # limite Discord : 4096 par description
 MESSAGE_MAX = 5800   # limite Discord : 6000 caractères d'embeds par message
 EMBEDS_MAX = 10
 COLOR = 0xF1C40F
+MONTHS_SHORT = {"janvier": "janv.", "février": "févr.", "fevrier": "févr.", "mars": "mars", "avril": "avr.", "mai": "mai",
+                "juin": "juin", "juillet": "juil.", "août": "août", "aout": "août", "septembre": "sept.",
+                "octobre": "oct.", "novembre": "nov.", "décembre": "déc.", "decembre": "déc."}
 
 
 def esc(text, limit=180):
@@ -40,6 +45,78 @@ def format_item(it):
         return tag_prefix(it["tags"]) + " | ".join(parts)
     sign = "➕" if it["kind"] == "add" else "➖"
     return f"{sign} {tag_prefix(it['tags'])}" + " | ".join(esc(v, 60) for v in it["cells"])
+
+
+def _short(text, limit=40):
+    text = " ".join((text or "").split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _edit_key(old, new):
+    """Réduit un avant/après à la partie qui change vraiment (mots), pour regrouper les modifs identiques."""
+    if not new:
+        return ("del", old, "")
+    if not old:
+        return ("add", "", new)
+    a, b = old.split(), new.split()
+    ops = [op for op in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if op[0] != "equal"]
+    if len(ops) == 1:
+        _, i1, i2, j1, j2 = ops[0]
+        return ("mod", " ".join(a[i1:i2]), " ".join(b[j1:j2]))
+    return ("mod", old, new)
+
+
+def summarize(report, max_groups=3):
+    """Compte rendu d'une ligne : modifs identiques regroupées, les plus fréquentes d'abord."""
+    groups, extras = OrderedDict(), []
+    for ev in report["events"]:
+        if ev["type"] == "tab_added":
+            extras.append(f"nouvel onglet {ev['tab']}")
+        elif ev["type"] == "tab_removed":
+            extras.append(f"onglet {ev['tab']} supprimé")
+        elif ev["type"] == "tab_renamed":
+            extras.append(f"onglet renommé en {ev['tab']}")
+        for it in ev.get("items", []):
+            if it["kind"] == "cell":
+                changes = [(it["old"], it["new"], it["context"].split(" · ")[0])]
+            elif it["kind"] == "row":
+                changes = [(c["old"], c["new"], None) for c in it["cells"] if "old" in c]
+            else:
+                key = ("rows_" + it["kind"], "", "")
+                groups.setdefault(key, []).append(None)
+                continue
+            for old, new, day in changes:
+                groups.setdefault(_edit_key(old, new), []).append(day)
+    parts = []
+    for (kind, old, new), days in sorted(groups.items(), key=lambda kv: -len(kv[1]))[:max_groups]:
+        n = len(days)
+        if kind == "rows_add":
+            parts.append(f"{n} ligne(s) ajoutée(s)")
+            continue
+        if kind == "rows_del":
+            parts.append(f"{n} ligne(s) supprimée(s)")
+            continue
+        if kind == "del":
+            text = f"{_short(old)} retiré"
+        elif kind == "add":
+            text = f"{_short(new)} ajouté"
+        elif not old:
+            text = f"« {_short(new)} » ajouté"
+        elif not new:
+            text = f"« {_short(old)} » retiré"
+        else:
+            text = f"{_short(old)} → {_short(new)}"
+        if n > 1:
+            text += f" ({n} créneaux)" if all(days) else f" ({n}×)"
+        elif days[0]:
+            m = re.search(r"(\d{1,2})(?:er)?\s+(\S+)", days[0])
+            if m:
+                text += f" ({m.group(1)} {MONTHS_SHORT.get(m.group(2).lower(), m.group(2))})"
+        parts.append(text)
+    hidden = len(groups) - len(parts)
+    if hidden > 0:
+        parts.append(f"+{hidden} autre(s)")
+    return " ; ".join(parts + extras)
 
 
 def build_embeds(report):
@@ -114,6 +191,9 @@ def build_messages(report, pings, commit_url=None, note=None, links=None):
         head = f"{note} {head}".strip()
     if commit_url:
         head += f" · [diff](<{commit_url}>)"
+    recap = summarize(report)
+    if recap:
+        head += (" · " if head else "") + esc(recap, 300)
     cal = [f"[{t}](<{links[t]}>)" for t in (tags or links or []) if links and t in links]
     if cal and status in ("changes", "access_restored"):
         head += " · 📅 " + " ".join(cal)
