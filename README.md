@@ -23,6 +23,12 @@ Abonnement : le workflow recopie les `.ics` dans un gist secret (variable `ICS_G
 SHEET_IDS=... python3 -m watcher ics --state datas/state --out /tmp/ics
 ```
 
+## Phrase de résumé
+
+Chaque notification commence par une phrase courte écrite par un modèle d'IA (ex. « Le cours ISI8 est annulé pour cette année. »). Fournisseur par défaut : l'API native de Puter (`RECAP_ENDPOINT=https://api.puter.com/drivers/call`, token Puter dans le secret `RECAP_API_KEY`, modèles dans `RECAP_MODELS`). Toute API compatible OpenAI marche aussi. Si l'appel échoue, la notification part sans la phrase.
+
+Tester sans rien envoyer : lancer le workflow « Test de la phrase de résumé » avec deux commits de `datas`.
+
 ## Configuration (Settings > Secrets and variables > Actions)
 
 | Nom | Type | Valeur |
