@@ -56,6 +56,7 @@ jobs:
           ICS_GIST_ID: ${{ vars.ICS_GIST_ID }}
           RECAP_API_KEY: ${{ secrets.RECAP_API_KEY }}
           RECAP_MODELS: ${{ vars.RECAP_MODELS }}
+          RECAP_ENDPOINT: ${{ vars.RECAP_ENDPOINT }}
         run: python3 -m watcher notify --report "$RUNNER_TEMP/watch/report.json" --ics-dir datas/ics
 
       - name: Push sur datas

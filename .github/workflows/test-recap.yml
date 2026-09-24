@@ -34,6 +34,7 @@ jobs:
         env:
           RECAP_API_KEY: ${{ secrets.RECAP_API_KEY }}
           RECAP_MODELS: ${{ vars.RECAP_MODELS }}
+          RECAP_ENDPOINT: ${{ vars.RECAP_ENDPOINT }}
           OLD: ${{ inputs.old }}
           NEW: ${{ inputs.new }}
         run: python3 -m watcher recap --datas datas --old "$OLD" --new "$NEW"
