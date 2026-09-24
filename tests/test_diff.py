@@ -137,7 +137,7 @@ class DiscordTests(unittest.TestCase):
         report = {"status": "changes", "title": "T", "events": [{"type": "cells", "tab": "t", "url": "https://x",
                   "items": [{"kind": "add", "tags": ["IBI", "SBI"], "cells": ["x"]}]}]}
         msg = discord.build_messages(report, pings)[0]
-        self.assertEqual(msg["content"], "<@123456789012345678> · 1 ligne(s) ajoutée(s)")
+        self.assertEqual(msg["content"], "<@123456789012345678>")
         self.assertEqual(msg["allowed_mentions"]["users"], ["123456789012345678"])
 
     def test_parse_pings_formats(self):
