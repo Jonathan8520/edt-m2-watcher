@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import diff, discord, sheets
+from . import diff, discord, ics, sheets
 
 
 def load_grid(path):
@@ -159,6 +159,10 @@ def cmd_scan(args):
     (out / "report.json").write_text(json.dumps({"sheets": reports}, ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "commit_msg.txt").write_text(" | ".join(messages) + "\n", encoding="utf-8")
     summary(reports)
+    if args.ics and (changed or not any(Path(args.ics).glob("*.ics"))):
+        if write_calendars(root, args.ics, ids, tags) and not changed:
+            changed = True
+            (out / "commit_msg.txt").write_text("Calendriers ICS\n", encoding="utf-8")
     if not changed:
         print("Aucun changement.")
     gh_output(changed=str(changed).lower(), notify=str(bool(reports)).lower())
@@ -197,17 +201,52 @@ def cmd_notify(args):
     print(f"{len(payloads)} message(s) envoyé(s)")
 
 
+def write_calendars(state_root, out_dir, ids, tags):
+    """Un .ics par programme à partir de l'état enregistré (state/<id>/)."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for sid in ids:
+        state = Path(state_root) / sid
+        if not (state / "meta.json").exists():
+            continue
+        meta = json.loads((state / "meta.json").read_text(encoding="utf-8"))
+        url = f"https://docs.google.com/spreadsheets/d/{sid}/htmlview"
+        events = []
+        for tab in meta["tabs"]:
+            path = state / "tabs" / f"{tab['gid']}.csv"
+            if path.exists():
+                events += ics.extract_events(load_grid(path), tags, tab["name"])
+        for tag in tags:
+            evs = [e for e in events if e["tag"] == tag]
+            if evs:
+                name = evs[0]["calendar"]
+                path = out / (re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-") + ".ics")
+                path.write_bytes(ics.build_calendar(evs, name, url).encode("utf-8"))
+                written.append(path)
+                print(f"{path} : {len(evs)} événements")
+    return written
+
+
+def cmd_ics(args):
+    tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
+    write_calendars(args.state, args.out, sheet_ids_from_env(), tags)
+
 def main():
     p = argparse.ArgumentParser(prog="watcher")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scan")
     s.add_argument("--state", required=True)
     s.add_argument("--out", required=True)
+    s.add_argument("--ics", help="dossier où régénérer les .ics quand le planning change")
     n = sub.add_parser("notify")
     n.add_argument("--report", required=True)
     n.add_argument("--note")
+    i = sub.add_parser("ics")
+    i.add_argument("--state", required=True)
+    i.add_argument("--out", required=True)
     args = p.parse_args()
-    {"scan": cmd_scan, "notify": cmd_notify}[args.cmd](args)
+    {"scan": cmd_scan, "notify": cmd_notify, "ics": cmd_ics}[args.cmd](args)
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ jobs:
 
       - name: Relevé du sheet
         id: scan
-        run: python3 -m watcher scan --state datas/state --out "$RUNNER_TEMP/watch"
+        run: python3 -m watcher scan --state datas/state --out "$RUNNER_TEMP/watch" --ics datas/ics
 
       - name: Commit de l'état
         id: commit
