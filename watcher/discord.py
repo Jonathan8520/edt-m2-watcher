@@ -83,7 +83,7 @@ def report_tags(report):
     return sorted(tags)
 
 
-def build_messages(report, pings, commit_url=None, note=None, links=None):
+def build_messages(report, pings, commit_url=None, note=None, links=None, recap=None):
     """Transforme le rapport d'un sheet en payloads webhook (pings dans le 1er message uniquement).
 
     pings : {"SBI": ("role", "123"), "IBI": ("user", "456")}
@@ -112,6 +112,8 @@ def build_messages(report, pings, commit_url=None, note=None, links=None):
         head = ("✅ Sheet de nouveau accessible. " + head).strip()
     if note:
         head = f"{note} {head}".strip()
+    if recap:
+        head += (" · " if head else "") + esc(recap, 240)
     if commit_url:
         head += f" · [diff](<{commit_url}>)"
     cal = [f"[{t}](<{links[t]}>)" for t in (tags or links or []) if links and t in links]

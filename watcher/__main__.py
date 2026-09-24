@@ -1,6 +1,7 @@
 """python -m watcher scan|notify"""
 import argparse
 import csv
+import io
 import json
 import os
 import re
@@ -9,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import diff, discord, ics, sheets
+from . import diff, discord, ics, recap, sheets
 
 
 def load_grid(path):
@@ -196,7 +197,12 @@ def cmd_notify(args):
             for t in tags:
                 if re.search(rf"(?<![A-Za-z]){t}(?![A-Za-z])", path.name, re.I):
                     links[t] = f"https://gist.githubusercontent.com/{repo.split('/')[0]}/{gist_id}/raw/{path.name}"
-    payloads = [p for rep in report["sheets"] for p in discord.build_messages(rep, pings, commit_url, args.note, links)]
+    models_token = os.environ.get("MODELS_TOKEN", "").strip()
+    payloads = []
+    for rep in report["sheets"]:
+        phrase = recap.sentence(rep, models_token)
+        print(f"Phrase : {phrase}")
+        payloads += discord.build_messages(rep, pings, commit_url, args.note, links, phrase)
     if not webhook:
         print("::warning::Secret DISCORD_WEBHOOK_URL absent : notification ignorée")
         print(json.dumps(payloads, ensure_ascii=False, indent=1))
@@ -267,6 +273,35 @@ def cmd_gist(args):
         api("PATCH", {"files": changes})
     print(f"Gist : {len(changes)} fichier(s) mis à jour")
 
+def report_between(datas_dir, sheet_id, old_rev, new_rev, tags):
+    """Rapport de changements entre deux commits de la branche datas (pour tester sans rien envoyer)."""
+    import subprocess
+
+    def show(rev, rel):
+        r = subprocess.run(["git", "-C", datas_dir, "show", f"{rev}:state/{sheet_id}/{rel}"],
+                           capture_output=True, text=True)
+        return r.stdout if r.returncode == 0 else None
+
+    meta = json.loads(show(new_rev, "meta.json"))
+    events = []
+    for tab in meta["tabs"]:
+        old, new = (sheets.normalize_grid(csv.reader(io.StringIO(show(rev, f"tabs/{tab['gid']}.csv") or "")))
+                    for rev in (old_rev, new_rev))
+        if old != new:
+            items = diff.diff_tab(old, new, tags)
+            if items:
+                events.append({"type": "cells", "tab": tab["name"], "url": "", "items": items})
+    return {"status": "changes", "title": meta["title"], "events": events}
+
+
+def cmd_recap(args):
+    tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
+    for sid in sheet_ids_from_env():
+        rep = report_between(args.datas, sid, args.old, args.new, tags)
+        print(f"=== {args.old} -> {args.new} : {sum(len(e['items']) for e in rep['events'])} changement(s)")
+        print(recap.describe(rep))
+        print("PHRASE :", recap.sentence(rep, os.environ.get("MODELS_TOKEN", "").strip()))
+
 def main():
     p = argparse.ArgumentParser(prog="watcher")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -283,8 +318,12 @@ def main():
     i.add_argument("--out", required=True)
     g = sub.add_parser("gist")
     g.add_argument("--dir", required=True)
+    r = sub.add_parser("recap", help="teste la phrase de résumé entre deux commits de datas (n'envoie rien)")
+    r.add_argument("--datas", required=True)
+    r.add_argument("--old", required=True)
+    r.add_argument("--new", required=True)
     args = p.parse_args()
-    {"scan": cmd_scan, "notify": cmd_notify, "ics": cmd_ics, "gist": cmd_gist}[args.cmd](args)
+    {"scan": cmd_scan, "notify": cmd_notify, "ics": cmd_ics, "gist": cmd_gist, "recap": cmd_recap}[args.cmd](args)
 
 
 if __name__ == "__main__":
