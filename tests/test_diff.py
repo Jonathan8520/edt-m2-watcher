@@ -165,3 +165,30 @@ class CalendarLinkTests(unittest.TestCase):
         for m in msgs:
             self.assertLessEqual(sum(discord._embed_len(e) for e in m["embeds"]), 6000)
             self.assertTrue(all(len(e["description"]) <= 4096 for e in m["embeds"]))
+
+
+class OutsideTablesTests(unittest.TestCase):
+    """Cellules hors des deux tableaux : attribuées par mention explicite, sinon aux deux programmes."""
+
+    def setUp(self):
+        self.old = HEAD + [row("lundi 5 octobre 2026", "MM1", "REC1", "REC1", "ISI8")]
+
+    def edit(self, r, c, value):
+        new = [x[:] + [""] * max(0, c + 1 - len(x)) for x in self.old]
+        while len(new) <= r:
+            new.append([""] * (c + 1))
+        new[r][c] = value
+        return diff.diff_tab(self.old, new, TAGS)[0]["tags"]
+
+    def test_note_right_of_tables_on_dated_row_pings_both(self):
+        self.assertEqual(self.edit(4, 12, "Note"), ["IBI", "SBI"])
+
+    def test_legend_rows_keep_their_program(self):
+        self.assertEqual(self.edit(1, 9, "Salle C1420"), ["SBI"])
+        self.assertEqual(self.edit(0, 9, "Salle C1402"), ["IBI"])
+
+    def test_cell_below_tables_pings_both(self):
+        self.assertEqual(self.edit(8, 5, "Soutenances le 15/06"), ["IBI", "SBI"])
+
+    def test_explicit_mention_wins(self):
+        self.assertEqual(self.edit(8, 5, "Réunion SBI"), ["SBI"])

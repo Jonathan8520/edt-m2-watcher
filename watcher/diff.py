@@ -55,6 +55,11 @@ class Layout:
     def title(self, idx):
         return self.blocks[idx][1]
 
+    def is_program(self, idx):
+        """Vrai tableau de programme (« SBI 2026-2027 ») ; faux pour une légende titrée juste « IBI »."""
+        title = self.title(idx).strip().upper()
+        return bool(title) and title not in {t.upper() for t in self.tags}
+
 
 def _block_cells(row, span):
     return row[span[0]:span[1]]
@@ -66,7 +71,7 @@ def resolve_tags(layout, idx, rows):
     cells = [c for row in rows for c in _block_cells(row, span)]
     found = {t for t in layout.tags if any(has_tag(t, c) for c in cells)}
     block_tags = {t for t in layout.tags if has_tag(t, layout.title(idx))}
-    if block_tags:
+    if block_tags and layout.is_program(idx):
         dated = any(DATE_RE.search(c) for c in cells)
         others = any(v for row in rows for c, v in enumerate(row) if v and not span[0] <= c < span[1])
         if dated or others:
