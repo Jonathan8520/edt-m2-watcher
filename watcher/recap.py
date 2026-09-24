@@ -1,11 +1,13 @@
-"""Phrase courte qui résume un changement, écrite par un modèle de GitHub Models (gratuit dans Actions)."""
+"""Phrase courte qui résume un changement, écrite par un modèle d'IA via une API compatible OpenAI.
+
+Par défaut : Gemini (clé gratuite Google AI Studio). Sans clé (secret RECAP_API_KEY), rien n'est appelé."""
 import json
 import os
 import urllib.error
 import urllib.request
 
-ENDPOINT = "https://models.github.ai/inference/chat/completions"
-MODELS = [m for m in os.environ.get("RECAP_MODELS", "openai/gpt-4.1-mini,openai/gpt-4o-mini").split(",") if m]
+ENDPOINT = os.environ.get("RECAP_ENDPOINT") or "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+MODELS = [m.strip() for m in (os.environ.get("RECAP_MODELS") or "gemini-2.5-flash-lite,gemini-2.5-flash").split(",") if m.strip()]
 MAX_LINES = 40
 
 SYSTEM = (
@@ -47,7 +49,7 @@ def describe(report):
 
 
 def _call(model, token, content):
-    body = {"model": model, "temperature": 0.2, "max_tokens": 80,
+    body = {"model": model, "temperature": 0.2, "max_tokens": 300,
             "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}]}
     req = urllib.request.Request(ENDPOINT, data=json.dumps(body).encode(), method="POST", headers={
         "Authorization": f"Bearer {token}", "Content-Type": "application/json",
@@ -66,10 +68,10 @@ def sentence(report, token):
         try:
             text = _call(model, token, content)
         except urllib.error.HTTPError as e:
-            print(f"::warning::GitHub Models ({model}) : HTTP {e.code} {e.read()[:200]!r}")
+            print(f"::warning::Résumé IA ({model}) : HTTP {e.code} {e.read()[:200]!r}")
             continue
         except Exception as e:  # réseau, format inattendu : on n'empêche jamais la notification
-            print(f"::warning::GitHub Models ({model}) : {e}")
+            print(f"::warning::Résumé IA ({model}) : {e}")
             continue
         text = " ".join((text or "").split()).strip("\"'«» ")
         if text:

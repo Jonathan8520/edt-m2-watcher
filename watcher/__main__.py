@@ -197,7 +197,7 @@ def cmd_notify(args):
             for t in tags:
                 if re.search(rf"(?<![A-Za-z]){t}(?![A-Za-z])", path.name, re.I):
                     links[t] = f"https://gist.githubusercontent.com/{repo.split('/')[0]}/{gist_id}/raw/{path.name}"
-    models_token = os.environ.get("MODELS_TOKEN", "").strip()
+    models_token = os.environ.get("RECAP_API_KEY", "").strip()
     payloads = []
     for rep in report["sheets"]:
         phrase = recap.sentence(rep, models_token)
@@ -300,7 +300,7 @@ def cmd_recap(args):
         rep = report_between(args.datas, sid, args.old, args.new, tags)
         print(f"=== {args.old} -> {args.new} : {sum(len(e['items']) for e in rep['events'])} changement(s)")
         print(recap.describe(rep))
-        print("PHRASE :", recap.sentence(rep, os.environ.get("MODELS_TOKEN", "").strip()))
+        print("PHRASE :", recap.sentence(rep, os.environ.get("RECAP_API_KEY", "").strip()))
 
 def main():
     p = argparse.ArgumentParser(prog="watcher")

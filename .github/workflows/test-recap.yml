@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: read
-  models: read
 
 env:
   SHEET_IDS: ${{ vars.SHEET_IDS || 'ID_DU_SHEET' }}
@@ -33,7 +32,8 @@ jobs:
           fetch-depth: 0
       - name: Phrase de résumé
         env:
-          MODELS_TOKEN: ${{ github.token }}
+          RECAP_API_KEY: ${{ secrets.RECAP_API_KEY }}
+          RECAP_MODELS: ${{ vars.RECAP_MODELS }}
           OLD: ${{ inputs.old }}
           NEW: ${{ inputs.new }}
         run: python3 -m watcher recap --datas datas --old "$OLD" --new "$NEW"

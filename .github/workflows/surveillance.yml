@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  models: read   # phrase de résumé via GitHub Models
 
 concurrency:
   group: edt-watch
@@ -55,7 +54,8 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_PINGS: ${{ vars.DISCORD_PINGS }}
           ICS_GIST_ID: ${{ vars.ICS_GIST_ID }}
-          MODELS_TOKEN: ${{ github.token }}
+          RECAP_API_KEY: ${{ secrets.RECAP_API_KEY }}
+          RECAP_MODELS: ${{ vars.RECAP_MODELS }}
         run: python3 -m watcher notify --report "$RUNNER_TEMP/watch/report.json" --ics-dir datas/ics
 
       - name: Push sur datas
