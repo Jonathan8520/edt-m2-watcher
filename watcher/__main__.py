@@ -187,8 +187,8 @@ def cmd_notify(args):
     report = json.loads(Path(args.report).read_text(encoding="utf-8"))
     webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
     pings = parse_pings(os.environ.get("DISCORD_PINGS") or os.environ.get("DISCORD_ROLES"))
-    sha, repo = os.environ.get("COMMIT_SHA", "").strip(), os.environ.get("GITHUB_REPOSITORY")
-    commit_url = f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{repo}/commit/{sha}" if sha and repo else None
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    commit_url = None  # repo privé : lien « diff » illisible pour le salon, retiré
     links, gist_id = {}, os.environ.get("ICS_GIST_ID", "").strip()
     if gist_id and args.ics_dir and repo:
         tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
