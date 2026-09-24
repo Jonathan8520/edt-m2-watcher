@@ -210,7 +210,13 @@ def cmd_notify(args):
     for i, payload in enumerate(payloads):
         if i:
             time.sleep(1)
-        discord.send(webhook, payload)
+        optional = payload.pop("_optional", False)
+        try:
+            discord.send(webhook, payload)
+        except Exception as e:
+            if not optional:
+                raise
+            print(f"::warning::Message du lien d'agenda non envoyé : {e}")
     print(f"{len(payloads)} message(s) envoyé(s)")
 
 

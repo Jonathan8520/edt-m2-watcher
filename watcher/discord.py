@@ -128,17 +128,17 @@ def build_messages(report, pings, commit_url=None, note=None, links=None, recap=
         size += _embed_len(e)
     if current:
         messages.append({"embeds": current})
-    # lien d'abonnement en bas du dernier encadré (le pied d'embed n'accepte pas les liens)
-    cal = [f"[Ajouter l'emploi du temps {t} à mon agenda]({links[t]})" for t in tags if links and t in links]
-    if cal and messages:
-        last = messages[-1]["embeds"][-1]
-        last["description"] = (last.get("description", "") + "\n\n" + "\n".join(cal)).strip()
     if not messages:
         messages = [{}]
     messages[0]["content"] = head[:2000]
     allowed = {"parse": [], "roles": sorted(set(roles)), "users": sorted(set(users))}
     for m in messages:
         m["allowed_mentions"] = allowed
+    # lien d'agenda après tous les encadrés : message séparé, sans aperçu (4) et sans notification (4096)
+    cal = [f"[Ajouter l'emploi du temps {t} à mon agenda](<{links[t]}>)" for t in tags if links and t in links]
+    if cal and any(m.get("embeds") for m in messages):
+        messages.append({"content": "\n".join(cal), "allowed_mentions": {"parse": []},
+                         "flags": 4 | 4096, "_optional": True})
     return messages
 
 
