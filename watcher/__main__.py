@@ -232,6 +232,34 @@ def cmd_ics(args):
     tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
     write_calendars(args.state, args.out, sheet_ids_from_env(), tags)
 
+def cmd_gist(args):
+    """Synchronise les .ics avec le gist d'abonnement (ICS_GIST_ID, GIST_TOKEN) ; ne réécrit que ce qui a changé."""
+    import urllib.request
+    gist_id, token = os.environ.get("ICS_GIST_ID", "").strip(), os.environ.get("GIST_TOKEN", "").strip()
+    if not gist_id or not token:
+        print("ICS_GIST_ID ou GIST_TOKEN absent : publication ignorée")
+        return
+
+    def api(method, body=None):
+        req = urllib.request.Request(f"https://api.github.com/gists/{gist_id}", method=method,
+                                     data=json.dumps(body).encode() if body else None,
+                                     headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                                              "User-Agent": "edt-m2-watcher"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+
+    remote = api("GET")["files"]
+    changes = {}
+    for path in sorted(Path(args.dir).glob("*.ics")):
+        content = path.read_text(encoding="utf-8")
+        current = remote.get(path.name) or {}
+        # les gists stockent les fins de ligne en LF : on compare sans les CR
+        if current.get("truncated") or (current.get("content") or "").replace("\r\n", "\n") != content.replace("\r\n", "\n"):
+            changes[path.name] = {"content": content}
+    if changes:
+        api("PATCH", {"files": changes})
+    print(f"Gist : {len(changes)} fichier(s) mis à jour")
+
 def main():
     p = argparse.ArgumentParser(prog="watcher")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -245,8 +273,10 @@ def main():
     i = sub.add_parser("ics")
     i.add_argument("--state", required=True)
     i.add_argument("--out", required=True)
+    g = sub.add_parser("gist")
+    g.add_argument("--dir", required=True)
     args = p.parse_args()
-    {"scan": cmd_scan, "notify": cmd_notify, "ics": cmd_ics}[args.cmd](args)
+    {"scan": cmd_scan, "notify": cmd_notify, "ics": cmd_ics, "gist": cmd_gist}[args.cmd](args)
 
 
 if __name__ == "__main__":

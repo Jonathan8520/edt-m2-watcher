@@ -17,6 +17,8 @@ Surveille le [planning M2 IBI/SBI](https://docs.google.com/spreadsheets/d/ID_DU_
 
 Un calendrier par programme : chaque cellule de créneau devient un événement (9h30-12h30 ou 14h-17h, ou l'horaire écrit dans la cellule, ex. « partiel … 14h-16h »). Salle : celle de la cellule, sinon celle de la ligne, sinon la salle par défaut du programme ; « Zoom » si la cellule le mentionne. Jours fériés en journée entière. Les UID sont stables par créneau : un calendrier abonné met à jour les cours au lieu de les dupliquer.
 
+Abonnement : le workflow recopie les `.ics` dans un gist secret (variable `ICS_GIST_ID`, secret `GIST_TOKEN` avec la permission Gists en écriture). URL d'abonnement : `https://gist.githubusercontent.com/Jonathan8520/<ICS_GIST_ID>/raw/<fichier>.ics`.
+
 ```sh
 SHEET_IDS=... python3 -m watcher ics --state datas/state --out /tmp/ics
 ```

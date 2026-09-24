@@ -60,3 +60,10 @@ jobs:
         if: steps.commit.outputs.sha != ''
         working-directory: datas
         run: git push -q origin HEAD:datas
+
+      # abonnement calendrier : copie les .ics dans le gist secret (seulement ce qui a changé)
+      - name: Publication des calendriers
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          ICS_GIST_ID: ${{ vars.ICS_GIST_ID }}
+        run: python3 -m watcher gist --dir datas/ics
