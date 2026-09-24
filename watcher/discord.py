@@ -5,8 +5,8 @@ import time
 import urllib.error
 import urllib.request
 
-DESC_MAX = 3800      # limite Discord : 4096 par description
-MESSAGE_MAX = 5800   # limite Discord : 6000 caractères d'embeds par message
+DESC_MAX = 3700      # limite Discord : 4096 par description (marge pour le lien agenda)
+MESSAGE_MAX = 5500   # limite Discord : 6000 caractères d'embeds par message (marge pour le lien agenda)
 EMBEDS_MAX = 10
 COLOR = 0xF1C40F
 
@@ -116,9 +116,6 @@ def build_messages(report, pings, commit_url=None, note=None, links=None, recap=
         head += (" · " if head else "") + esc(recap, 240)
     if commit_url:
         head += f" · [diff](<{commit_url}>)"
-    cal = [f"[{t}](<{links[t]}>)" for t in (tags or links or []) if links and t in links]
-    if cal and status in ("changes", "access_restored"):
-        head += " · 📅 " + " ".join(cal)
 
     footer = {"text": report["title"][:200]}
     messages, current, size = [], [], 0
@@ -131,6 +128,11 @@ def build_messages(report, pings, commit_url=None, note=None, links=None, recap=
         size += _embed_len(e)
     if current:
         messages.append({"embeds": current})
+    # lien d'abonnement en bas du dernier encadré (le pied d'embed n'accepte pas les liens)
+    cal = [f"[Ajouter l'emploi du temps {t} à mon agenda]({links[t]})" for t in tags if links and t in links]
+    if cal and messages:
+        last = messages[-1]["embeds"][-1]
+        last["description"] = (last.get("description", "") + "\n\n" + "\n".join(cal)).strip()
     if not messages:
         messages = [{}]
     messages[0]["content"] = head[:2000]

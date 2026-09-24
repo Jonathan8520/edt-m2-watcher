@@ -149,3 +149,19 @@ class DiscordTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CalendarLinkTests(unittest.TestCase):
+    def test_link_at_bottom_of_last_embed_within_limits(self):
+        items = [{"kind": "cell", "tags": ["IBI", "SBI"], "context": f"lundi {i} octobre 2026 · 9h30-12h30",
+                  "old": "A" * 150, "new": "B" * 150} for i in range(400)]
+        report = {"status": "changes", "title": "T",
+                  "events": [{"type": "cells", "tab": f"tab{k}", "url": "https://x", "items": items} for k in range(3)]}
+        links = {"SBI": "https://gist.example/raw/M2-SBI.ics", "IBI": "https://gist.example/raw/M2-IBI.ics"}
+        msgs = discord.build_messages(report, {}, None, None, links, "Phrase.")
+        last = msgs[-1]["embeds"][-1]["description"]
+        self.assertTrue(last.endswith("[Ajouter l'emploi du temps SBI à mon agenda](https://gist.example/raw/M2-SBI.ics)"))
+        self.assertNotIn("📅", msgs[0]["content"])
+        for m in msgs:
+            self.assertLessEqual(sum(discord._embed_len(e) for e in m["embeds"]), 6000)
+            self.assertTrue(all(len(e["description"]) <= 4096 for e in m["embeds"]))
