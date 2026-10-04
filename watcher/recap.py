@@ -28,7 +28,8 @@ SYSTEM = (
     "Exemples (situations inventées) :\n"
     "- MM1 retiré le 3 nov. et ajouté le 8 déc. → MM1 est déplacé du 3 nov. au 8 déc.\n"
     "- partiel GO3 ajouté le 12 mars 14h-16h → Un partiel de GO3 est ajouté le 12 mars de 14h à 16h.\n"
-    "- REC1 retiré les 2, 9 et 16 févr. → REC1 est retiré du planning les 2, 9 et 16 févr."
+    "- REC1 retiré les 2, 9 et 16 févr. → REC1 est retiré du planning les 2, 9 et 16 févr.\n"
+    "- INF4 : texte complété par « Claire DUPONT » → Le nom complet de l'enseignante d'INF4, Claire Dupont, est précisé."
 )
 
 MONTHS_SHORT = {"janvier": "janv.", "février": "févr.", "fevrier": "févr.", "mars": "mars", "avril": "avr.",
@@ -83,6 +84,22 @@ def synthesis(report):
                 if where not in entry[verb]:
                     entry[verb].append(where)
     lines = []
+    # textes simplement complétés (mêmes cours, mots ajoutés) : ex. « GO1 (Paul) » → « GO1 (Paul MARTIN) »
+    completed = {}
+    for ev in report["events"]:
+        for it in ev.get("items", []):
+            if it["kind"] != "cell" or not it["old"] or not it["new"] or _codes(it["old"]).keys() != _codes(it["new"]).keys():
+                continue
+            a, b = it["old"].replace("(", " ").replace(")", " ").split(), it["new"].replace("(", " ").replace(")", " ").split()
+            added = [w for w in b if w not in a]
+            if added and all(w in b for w in a):
+                codes = ", ".join(sorted({c for c, _ in _codes(it["new"])})) or "texte"
+                key = (codes, " ".join(added))
+                completed.setdefault(key, []).append(_short_date(it["context"].partition(" · ")[0]))
+    for (codes, added), days in completed.items():
+        uniq = list(dict.fromkeys(days))
+        lines.append(f"- {codes} : texte complété par « {added} » (même cours, mêmes créneaux) "
+                     f"sur {len(days)} cellule(s), du {uniq[0]} au {uniq[-1]}")
     for (code, partiel), entry in sorted(by_course.items(), key=lambda kv: (not kv[0][1], kv[0][0])):
         parts = [f"{verb} le {', '.join(where)}" for verb, where in entry.items() if where]
         lines.append(f"- {'partiel ' if partiel else ''}{code} : " + " ; ".join(parts))

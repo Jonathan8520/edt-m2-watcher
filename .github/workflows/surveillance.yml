@@ -46,6 +46,7 @@ jobs:
           if git diff --cached --quiet; then exit 0; fi
           git commit -q -F "$RUNNER_TEMP/watch/commit_msg.txt"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "prev=$(git rev-parse HEAD~1)" >> "$GITHUB_OUTPUT"
 
       # notification avant le push : si Discord échoue, l'état n'est pas poussé et le prochain passage renvoie
       - name: Notification Discord
@@ -57,12 +58,17 @@ jobs:
           RECAP_API_KEY: ${{ secrets.RECAP_API_KEY }}
           RECAP_MODELS: ${{ vars.RECAP_MODELS }}
           RECAP_ENDPOINT: ${{ vars.RECAP_ENDPOINT }}
-        run: python3 -m watcher notify --report "$RUNNER_TEMP/watch/report.json" --ics-dir datas/ics
+          PREV_SHA: ${{ steps.commit.outputs.prev }}
+        run: python3 -m watcher notify --report "$RUNNER_TEMP/watch/report.json" --ics-dir datas/ics --log datas/state/messages.jsonl
 
       - name: Push sur datas
         if: steps.commit.outputs.sha != ''
         working-directory: datas
-        run: git push -q origin HEAD:datas
+        run: |
+          # ajoute le journal des messages au commit du changement, puis pousse
+          git add -A
+          git diff --cached --quiet || git commit -q --amend --no-edit
+          git push -q origin HEAD:datas
 
       # abonnement calendrier : copie les .ics dans le gist secret (seulement ce qui a changé)
       - name: Publication des calendriers

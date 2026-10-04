@@ -1,0 +1,50 @@
+name: Corriger un message
+
+# Lancement manuel : réécrit la phrase d'une notification déjà envoyée (modification Discord, sans nouvelle notification).
+on:
+  workflow_dispatch:
+    inputs:
+      message_id:
+        description: "Identifiant du message Discord (le premier de la notification)"
+        required: true
+      phrase:
+        description: "Phrase à imposer (vide = régénérée par l'IA)"
+        required: false
+      dry_run:
+        description: "Afficher seulement, sans modifier"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  SHEET_IDS: ${{ vars.SHEET_IDS || 'ID_DU_SHEET' }}
+  WATCH_TAGS: IBI,SBI
+
+jobs:
+  fix:
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          ref: datas
+          path: datas
+          fetch-depth: 0
+      - name: Réécriture du message
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_PINGS: ${{ vars.DISCORD_PINGS }}
+          RECAP_API_KEY: ${{ secrets.RECAP_API_KEY }}
+          RECAP_MODELS: ${{ vars.RECAP_MODELS }}
+          RECAP_ENDPOINT: ${{ vars.RECAP_ENDPOINT }}
+          MESSAGE_ID: ${{ inputs.message_id }}
+          PHRASE: ${{ inputs.phrase }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--datas datas --message-id "$MESSAGE_ID")
+          [ -n "$PHRASE" ] && args+=(--phrase "$PHRASE")
+          [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+          python3 -m watcher fix "${args[@]}"

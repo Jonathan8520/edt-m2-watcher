@@ -142,19 +142,27 @@ def build_messages(report, pings, commit_url=None, note=None, links=None, recap=
     return messages
 
 
-def send(webhook_url, payload, tries=5):
+def send(webhook_url, payload, tries=5, message_id=None):
+    """Envoie un message (ou modifie le message message_id) ; renvoie le message Discord."""
     data = json.dumps(payload).encode()
-    url = webhook_url + ("&" if "?" in webhook_url else "?") + "wait=true"
+    if message_id:
+        url, method = f"{webhook_url.split('?')[0]}/messages/{message_id}", "PATCH"
+    else:
+        url, method = webhook_url + ("&" if "?" in webhook_url else "?") + "wait=true", "POST"
     for _ in range(tries):
-        req = urllib.request.Request(url, data=data, method="POST", headers={
+        req = urllib.request.Request(url, data=data, method=method, headers={
             "Content-Type": "application/json",
             "User-Agent": "DiscordBot (https://github.com/Jonathan8520/edt-m2-watcher, 1.0)"})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
+                body = r.read()
                 remaining = r.headers.get("X-RateLimit-Remaining")
                 if remaining == "0":
                     time.sleep(float(r.headers.get("X-RateLimit-Reset-After", "1")))
-                return
+                try:
+                    return json.loads(body)
+                except ValueError:
+                    return {}
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", "replace")
             if e.code == 429:

@@ -207,11 +207,18 @@ def cmd_notify(args):
         print("::warning::Secret DISCORD_WEBHOOK_URL absent : notification ignorée")
         print(json.dumps(payloads, ensure_ascii=False, indent=1))
         return
+    ids = []
     for i, payload in enumerate(payloads):
         if i:
             time.sleep(1)
-        discord.send(webhook, payload)
-    print(f"{len(payloads)} message(s) envoyé(s)")
+        ids.append((discord.send(webhook, payload) or {}).get("id"))
+    print(f"{len(payloads)} message(s) envoyé(s) : {ids}")
+    if args.log:
+        # journal des messages (branche datas) : permet de les corriger plus tard sans notifier
+        entry = {"date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "old": os.environ.get("PREV_SHA", ""),
+                 "messages": [i for i in ids if i]}
+        with open(args.log, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def write_calendars(state_root, out_dir, ids, tags):
@@ -302,6 +309,31 @@ def cmd_recap(args):
         print(recap.describe(rep))
         print("PHRASE :", recap.sentence(rep, os.environ.get("RECAP_API_KEY", "").strip()))
 
+def cmd_fix(args):
+    """Réécrit la première ligne d'un message déjà envoyé (pings + phrase), sans notifier personne."""
+    import subprocess
+    log = Path(args.datas) / "state" / "messages.jsonl"
+    entries = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()] if log.exists() else []
+    entry = next((e for e in entries if args.message_id in e["messages"]), None)
+    if not entry:
+        sys.exit(f"Message {args.message_id} absent du journal {log}")
+    if entry["messages"][0] != args.message_id:
+        sys.exit("Seul le premier message d'une notification porte la phrase : donne l'identifiant de celui-là")
+    new = entry.get("new") or subprocess.run(
+        ["git", "-C", args.datas, "log", "--reverse", "--format=%H", f"-S{args.message_id}", "--", "state/messages.jsonl"],
+        capture_output=True, text=True, check=True).stdout.split()[0]
+    tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
+    pings = parse_pings(os.environ.get("DISCORD_PINGS"))
+    rep = report_between(args.datas, sheet_ids_from_env()[0], entry["old"], new, tags)
+    phrase = args.phrase or recap.sentence(rep, os.environ.get("RECAP_API_KEY", "").strip())
+    content = discord.build_messages(rep, pings, None, None, None, phrase)[0]["content"]
+    print("Nouvelle première ligne :", content)
+    if args.dry_run:
+        return
+    discord.send(os.environ["DISCORD_WEBHOOK_URL"], {"content": content, "allowed_mentions": {"parse": []}},
+                 message_id=args.message_id)
+    print("Message modifié (aucune notification).")
+
 def main():
     p = argparse.ArgumentParser(prog="watcher")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -313,6 +345,7 @@ def main():
     n.add_argument("--report", required=True)
     n.add_argument("--note")
     n.add_argument("--ics-dir", help="dossier des .ics pour ajouter les liens d'abonnement au message")
+    n.add_argument("--log", help="fichier JSONL où noter les identifiants des messages envoyés")
     i = sub.add_parser("ics")
     i.add_argument("--state", required=True)
     i.add_argument("--out", required=True)
@@ -322,8 +355,14 @@ def main():
     r.add_argument("--datas", required=True)
     r.add_argument("--old", required=True)
     r.add_argument("--new", required=True)
+    f = sub.add_parser("fix", help="réécrit la phrase d'un message déjà envoyé, sans notifier")
+    f.add_argument("--datas", required=True)
+    f.add_argument("--message-id", required=True)
+    f.add_argument("--phrase", help="phrase imposée (sinon régénérée par l'IA)")
+    f.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
-    {"scan": cmd_scan, "notify": cmd_notify, "ics": cmd_ics, "gist": cmd_gist, "recap": cmd_recap}[args.cmd](args)
+    {"scan": cmd_scan, "notify": cmd_notify, "ics": cmd_ics, "gist": cmd_gist, "recap": cmd_recap,
+     "fix": cmd_fix}[args.cmd](args)
 
 
 if __name__ == "__main__":
