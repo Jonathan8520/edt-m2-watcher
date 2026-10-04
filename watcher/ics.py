@@ -10,7 +10,7 @@ PARIS = ZoneInfo("Europe/Paris")
 MONTHS = {"janvier": 1, "fevrier": 2, "février": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6, "juillet": 7,
           "aout": 8, "août": 8, "aoüt": 8, "septembre": 9, "octobre": 10, "novembre": 11, "decembre": 12, "décembre": 12}
 DATE_RE = re.compile(r"(\d{1,2})(?:er)?\s+([a-zéûü]+)\s+(\d{4})", re.I)
-RANGE_RE = re.compile(r"(\d{1,2})\s*h\s*(\d{2})?\s*-\s*(\d{1,2})\s*h\s*(\d{2})?", re.I)
+RANGE_RE = re.compile(r"(\d{1,2})\s*h\s*(\d{2})?\s*h?\s*-\s*(\d{1,2})\s*h\s*(\d{2})?", re.I)
 TIME_RE = re.compile(r"(?<![\w-])(\d{1,2})\s*h\s*(\d{2})?(?![\w-])", re.I)
 ROOM_RE = re.compile(r"\b(?:[A-Z]\d{4,5}|[A-Z]\.\d{1,2}\.\d{1,2})\b")
 HOLIDAY_RE = re.compile(r"^(armistice|p[âa]ques|ascension|pentec[ôo]te|f[ée]ri[ée]|vacances|no[ëe]l|toussaint)\b", re.I)
@@ -30,6 +30,13 @@ def _hm(h, m):
 def slot_times(label):
     m = RANGE_RE.search(label or "")
     return (_hm(m.group(1), m.group(2)), _hm(m.group(3), m.group(4))) if m else None
+
+
+def explicit_range(text):
+    """Plage horaire écrite dans la cellule, si elle est plausible."""
+    ranges = [(_hm(a, b), _hm(c, d)) for a, b, c, d in RANGE_RE.findall(text or "")]
+    ranges = [r for r in ranges if 7 <= r[0][0] <= 21 and r[0] < r[1] <= (22, 0)]
+    return (min(r[0] for r in ranges), max(r[1] for r in ranges)) if ranges else None
 
 
 def event_times(text, slot):
@@ -81,6 +88,9 @@ def extract_events(grid, tags, tab_name):
                     slots.append((label, times, v))
                 elif ROOM_RE.fullmatch(v):
                     row_room = v
+                elif explicit_range(v):
+                    # ex. « partiel M2-INF2 (NB) - 17H30h-19h » écrit hors des colonnes de créneau
+                    slots.append((f"col. {diff.col_letter(c)}", explicit_range(v), v))
                 else:
                     notes.append(v)
             holiday_done = False
