@@ -9,6 +9,9 @@ DESC_MAX = 3700      # limite Discord : 4096 par description (marge pour le lien
 MESSAGE_MAX = 5500   # limite Discord : 6000 caractères d'embeds par message (marge pour le lien agenda)
 EMBEDS_MAX = 10
 COLOR = 0xF1C40F
+MONTHS_SHORT = {"janvier": "janv.", "février": "févr.", "fevrier": "févr.", "mars": "mars", "avril": "avr.", "mai": "mai",
+                "juin": "juin", "juillet": "juil.", "août": "août", "aout": "août", "septembre": "sept.",
+                "octobre": "oct.", "novembre": "nov.", "décembre": "déc.", "decembre": "déc."}
 
 
 def esc(text, limit=180):
@@ -22,35 +25,39 @@ def tag_prefix(tags):
     return "**" + "/".join(tags) + "** · " if tags else ""
 
 
+DAYS_SHORT = {"lundi": "lun.", "mardi": "mar.", "mercredi": "mer.", "jeudi": "jeu.", "vendredi": "ven.",
+              "samedi": "sam.", "dimanche": "dim."}
+
+
+def short_context(context):
+    """« lundi 5 octobre 2026 · 9h30-12h30 » → « lun. 5 oct. · 9h30-12h30 » (l'onglet donne déjà la période)."""
+    def day(m):
+        return f"{DAYS_SHORT.get(m.group(1).lower(), m.group(1))} {m.group(2)} {MONTHS_SHORT.get(m.group(3).lower(), m.group(3))}"
+    return re.sub(r"\b([a-zé]+)\s+(\d{1,2}(?:er)?)\s+([a-zéû]+)\s+\d{4}\b", day, context, count=1, flags=re.I)
+
+
+def change_line(old, new):
+    """❌ retiré · ➕ ajouté · 🔁 remplacé."""
+    if not new:
+        return f"❌ ~~{esc(old)}~~"
+    if not old:
+        return f"➕ **{esc(new)}**"
+    return f"🔁 ~~{esc(old)}~~ → **{esc(new)}**"
+
+
 def format_item(it, show_tags=True):
-    empty = "*(vide)*"
+    """Un changement sur deux lignes : le moment (ou le cours) en gras, puis ce qui change."""
+    prefix = tag_prefix(it["tags"]) if show_tags else ""
     if it["kind"] == "cell":
-        old = f"~~{esc(it['old'])}~~" if it["old"] else empty
-        new = f"**{esc(it['new'])}**" if it["new"] else empty
-        return f"{tag_prefix(it['tags']) if show_tags else ''}{esc(it['context'], 80)} : {old} → {new}"
-    if it["kind"] == "row" and it.get("key"):
-        # forme courte : « M2-ISI5 · Exam Date : ~~18/01/2027~~ → (vide) »
-        parts = []
-        for c in it["cells"]:
-            if "old" not in c:
-                continue
-            old = f"~~{esc(c['old'])}~~" if c["old"] else empty
-            new = f"**{esc(c['new'])}**" if c["new"] else empty
-            parts.append((f"{esc(c['header'], 30)} : " if c.get("header") else "") + f"{old} → {new}")
-        prefix = tag_prefix(it["tags"]) if show_tags else ""
-        return f"{prefix}{esc(it['key'], 40)} · " + " ; ".join(parts)
+        return f"{prefix}**{esc(short_context(it['context']), 80)}**\n{change_line(it['old'], it['new'])}"
     if it["kind"] == "row":
-        parts = []
-        for c in it["cells"]:
-            if "value" in c:
-                parts.append(esc(c["value"], 40))
-            else:
-                old = f"~~{esc(c['old'])}~~" if c["old"] else empty
-                new = f"**{esc(c['new'])}**" if c["new"] else empty
-                parts.append(f"{old} → {new}")
-        return (tag_prefix(it["tags"]) if show_tags else "") + " | ".join(parts)
-    sign = "➕" if it["kind"] == "add" else "➖"
-    return f"{sign} {tag_prefix(it['tags']) if show_tags else ''}" + " | ".join(esc(v, 60) for v in it["cells"])
+        changes = [c for c in it["cells"] if "old" in c]
+        head = it.get("key") or " | ".join(esc(c["value"], 40) for c in it["cells"] if "value" in c)[:120]
+        lines = [(f"{esc(c['header'], 30)} : " if c.get("header") else "") + change_line(c["old"], c["new"])
+                 for c in changes]
+        return f"{prefix}**{esc(head, 60)}**\n" + "\n".join(lines)
+    sign = "➕ Ligne ajoutée" if it["kind"] == "add" else "❌ Ligne supprimée"
+    return f"{prefix}**{sign}**\n" + " | ".join(esc(v, 60) for v in it["cells"])
 
 
 PROGRAM_COLORS = {"IBI": 0x9B59B6, "SBI": 0x3498DB}
@@ -60,14 +67,14 @@ def _lines(items, show_tags):
     lines, size, shown = [], 0, 0
     for it in items:
         line = format_item(it, show_tags)
-        if size + len(line) + 1 > DESC_MAX:
+        if size + len(line) + 2 > DESC_MAX:
             break
         lines.append(line)
-        size += len(line) + 1
+        size += len(line) + 2
         shown += 1
     if shown < len(items):
         lines.append(f"… et {len(items) - shown} autre(s) changement(s)")
-    return "\n".join(lines)
+    return "\n\n".join(lines)
 
 
 def build_embeds(report, links=None):
