@@ -49,8 +49,8 @@ class RecapSynthesisTests(unittest.TestCase):
         report = {"status": "changes", "events": [{"type": "cells", "tab": "t", "items": items}]}
         self.assertEqual(recap.synthesis(report), [
             "- partiel ISI5 : retiré le 18 janv. (11h-12h)",
-            "- ISI5 : retiré le 15 déc. (après-midi)",
-            "- MM1 : retiré le 5 oct. (matin) ; ajouté le 15 déc. (après-midi)"])
+            "- ISI5 : retiré le 15 déc.",
+            "- MM1 : retiré le 5 oct. ; ajouté le 15 déc."])
 
     def test_partiel_written_outside_slot_columns_becomes_event(self):
         grid = HEAD + [row("lundi 25 janvier 2027", "M2-INF2", "", "", "")]

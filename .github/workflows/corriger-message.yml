@@ -8,7 +8,7 @@ on:
         description: "Identifiant du message Discord (le premier de la notification)"
         required: true
       phrase:
-        description: "Phrase à imposer (vide = régénérée par l'IA)"
+        description: "Texte complet à imposer en haut du message (vide = régénéré par l'IA)"
         required: false
       dry_run:
         description: "Afficher seulement, sans modifier"
@@ -40,6 +40,7 @@ jobs:
           RECAP_API_KEY: ${{ secrets.RECAP_API_KEY }}
           RECAP_MODELS: ${{ vars.RECAP_MODELS }}
           RECAP_ENDPOINT: ${{ vars.RECAP_ENDPOINT }}
+          ICS_GIST_ID: ${{ vars.ICS_GIST_ID }}
           MESSAGE_ID: ${{ inputs.message_id }}
           PHRASE: ${{ inputs.phrase }}
           DRY_RUN: ${{ inputs.dry_run }}

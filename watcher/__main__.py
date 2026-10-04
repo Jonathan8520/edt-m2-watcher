@@ -184,24 +184,30 @@ def parse_pings(raw):
     return pings
 
 
+def calendar_links(ics_dir, repo):
+    """{"IBI": url, "SBI": url} des calendriers publiés dans le gist d'abonnement."""
+    links, gist_id = {}, os.environ.get("ICS_GIST_ID", "").strip()
+    if gist_id and ics_dir and repo:
+        tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
+        for path in sorted(Path(ics_dir).glob("*.ics")):
+            for t in tags:
+                if re.search(rf"(?<![A-Za-z]){t}(?![A-Za-z])", path.name, re.I):
+                    links[t] = f"https://gist.githubusercontent.com/{repo.split('/')[0]}/{gist_id}/raw/{path.name}"
+    return links
+
+
 def cmd_notify(args):
     report = json.loads(Path(args.report).read_text(encoding="utf-8"))
     webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
     pings = parse_pings(os.environ.get("DISCORD_PINGS") or os.environ.get("DISCORD_ROLES"))
     repo = os.environ.get("GITHUB_REPOSITORY")
     commit_url = None  # repo privé : lien « diff » illisible pour le salon, retiré
-    links, gist_id = {}, os.environ.get("ICS_GIST_ID", "").strip()
-    if gist_id and args.ics_dir and repo:
-        tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
-        for path in sorted(Path(args.ics_dir).glob("*.ics")):
-            for t in tags:
-                if re.search(rf"(?<![A-Za-z]){t}(?![A-Za-z])", path.name, re.I):
-                    links[t] = f"https://gist.githubusercontent.com/{repo.split('/')[0]}/{gist_id}/raw/{path.name}"
+    links = calendar_links(args.ics_dir, repo)
     models_token = os.environ.get("RECAP_API_KEY", "").strip()
     payloads = []
     for rep in report["sheets"]:
-        phrase = recap.sentence(rep, models_token)
-        print(f"Phrase : {phrase}")
+        phrase = recap.bullets(rep, models_token)
+        print(f"Résumé : {phrase}")
         payloads += discord.build_messages(rep, pings, commit_url, args.note, links, phrase)
     if not webhook:
         print("::warning::Secret DISCORD_WEBHOOK_URL absent : notification ignorée")
@@ -307,7 +313,8 @@ def cmd_recap(args):
         rep = report_between(args.datas, sid, args.old, args.new, tags)
         print(f"=== {args.old} -> {args.new} : {sum(len(e['items']) for e in rep['events'])} changement(s)")
         print(recap.describe(rep))
-        print("PHRASE :", recap.sentence(rep, os.environ.get("RECAP_API_KEY", "").strip()))
+        for tag, points in recap.bullets(rep, os.environ.get("RECAP_API_KEY", "").strip()).items():
+            print(f"RÉSUMÉ {tag} :", " | ".join(points))
 
 def cmd_fix(args):
     """Réécrit la première ligne d'un message déjà envoyé (pings + phrase), sans notifier personne."""
@@ -325,13 +332,17 @@ def cmd_fix(args):
     tags = [t.strip() for t in os.environ.get("WATCH_TAGS", "IBI,SBI").split(",") if t.strip()]
     pings = parse_pings(os.environ.get("DISCORD_PINGS"))
     rep = report_between(args.datas, sheet_ids_from_env()[0], entry["old"], new, tags)
-    phrase = args.phrase or recap.sentence(rep, os.environ.get("RECAP_API_KEY", "").strip())
-    content = discord.build_messages(rep, pings, None, None, None, phrase)[0]["content"]
-    print("Nouvelle première ligne :", content)
+    summary_ = recap.bullets(rep, os.environ.get("RECAP_API_KEY", "").strip())
+    links = calendar_links(Path(args.datas) / "ics", os.environ.get("GITHUB_REPOSITORY", ""))
+    msgs = discord.build_messages(rep, pings, None, None, links, summary_)
+    payload = {"content": args.phrase or msgs[0]["content"], "allowed_mentions": {"parse": []}}
+    if len(msgs) == 1 and len(entry["messages"]) == 1:
+        payload["embeds"] = msgs[0].get("embeds", [])
+    print("Nouveau contenu :\n" + payload["content"])
+    print(f"Encadrés : {len(payload.get('embeds', [])) or 'inchangés'}")
     if args.dry_run:
         return
-    discord.send(os.environ["DISCORD_WEBHOOK_URL"], {"content": content, "allowed_mentions": {"parse": []}},
-                 message_id=args.message_id)
+    discord.send(os.environ["DISCORD_WEBHOOK_URL"], payload, message_id=args.message_id)
     print("Message modifié (aucune notification).")
 
 def main():
@@ -358,7 +369,7 @@ def main():
     f = sub.add_parser("fix", help="réécrit la phrase d'un message déjà envoyé, sans notifier")
     f.add_argument("--datas", required=True)
     f.add_argument("--message-id", required=True)
-    f.add_argument("--phrase", help="phrase imposée (sinon régénérée par l'IA)")
+    f.add_argument("--phrase", help="texte complet imposé pour le haut du message (sinon régénéré par l'IA)")
     f.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
     {"scan": cmd_scan, "notify": cmd_notify, "ics": cmd_ics, "gist": cmd_gist, "recap": cmd_recap,
