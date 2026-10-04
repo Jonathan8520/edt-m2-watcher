@@ -97,6 +97,33 @@ def slot_label(grid, r, c):
     return None
 
 
+COURSE_RE = re.compile(r"\b(?:M2-)?[A-Z]{2,4}\d{1,2}\b")
+
+
+def column_header(grid, layout, idx, r, c):
+    """Titre de la colonne c (« Exam Date », « Enseignant »…), ou None s'il n'y en a pas."""
+    start, end = layout.span(idx)
+    for rr in range(r - 1, -1, -1):
+        row = grid[rr] if rr < len(grid) else []
+        if cell(grid, rr, start) or not any(row[start:end]):
+            continue
+        v = cell(grid, rr, c)
+        if v and not DATE_RE.search(v) and len(v) <= 30:
+            return v.rstrip(" :")
+        return None
+    return None
+
+
+def row_key(row, span, skip):
+    """Ce qui identifie la ligne : le code du cours s'il y en a un, sinon la première cellule remplie."""
+    cells = [v for c, v in enumerate(row[span[0]:span[1]], span[0]) if v and c not in skip]
+    for v in cells:
+        m = COURSE_RE.search(v)
+        if m:
+            return m.group(0)
+    return cells[0][:40] if cells else ""
+
+
 def _row_key(row):
     for v in row:
         if DATE_RE.search(v):
@@ -155,7 +182,7 @@ def diff_tab(old, new, tags):
             date = row_date(nrow, span) or row_date(orow, span)
             if date:
                 for c in changed:
-                    slot = slot_label(new, j, c) or f"col. {col_letter(c)}"
+                    slot = slot_label(new, j, c) or column_header(new, layout, idx, j, c) or "note"
                     items.append({"kind": "cell", "tags": tags_, "context": f"{date} · {slot}",
                                   "old": cell(old, i, c), "new": cell(new, j, c), "order": j})
             else:
@@ -164,10 +191,12 @@ def diff_tab(old, new, tags):
                 for c in range(span[0], end):
                     o, n = cell(old, i, c), cell(new, j, c)
                     if o != n:
-                        row_cells.append({"old": o, "new": n})
+                        row_cells.append({"old": o, "new": n, "header": column_header(new, layout, idx, j, c)})
                     elif n:
                         row_cells.append({"value": n})
-                items.append({"kind": "row", "tags": tags_, "cells": row_cells, "order": j})
+                changed_cols = {c for c in range(span[0], end) if cell(old, i, c) != cell(new, j, c)}
+                items.append({"kind": "row", "tags": tags_, "cells": row_cells, "order": j,
+                              "key": row_key(nrow or orow, span, changed_cols)})
     items.sort(key=lambda it: it["order"])
     for it in items:
         it.pop("order")

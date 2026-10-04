@@ -90,7 +90,7 @@ def extract_events(grid, tags, tab_name):
                     row_room = v
                 elif explicit_range(v):
                     # ex. « partiel M2-INF2 (NB) - 17H30h-19h » écrit hors des colonnes de créneau
-                    slots.append((f"col. {diff.col_letter(c)}", explicit_range(v), v))
+                    slots.append(("horaire indiqué", explicit_range(v), v))
                 else:
                     notes.append(v)
             holiday_done = False

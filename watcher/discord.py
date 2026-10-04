@@ -28,6 +28,17 @@ def format_item(it, show_tags=True):
         old = f"~~{esc(it['old'])}~~" if it["old"] else empty
         new = f"**{esc(it['new'])}**" if it["new"] else empty
         return f"{tag_prefix(it['tags']) if show_tags else ''}{esc(it['context'], 80)} : {old} → {new}"
+    if it["kind"] == "row" and it.get("key"):
+        # forme courte : « M2-ISI5 · Exam Date : ~~18/01/2027~~ → (vide) »
+        parts = []
+        for c in it["cells"]:
+            if "old" not in c:
+                continue
+            old = f"~~{esc(c['old'])}~~" if c["old"] else empty
+            new = f"**{esc(c['new'])}**" if c["new"] else empty
+            parts.append((f"{esc(c['header'], 30)} : " if c.get("header") else "") + f"{old} → {new}")
+        prefix = tag_prefix(it["tags"]) if show_tags else ""
+        return f"{prefix}{esc(it['key'], 40)} · " + " ; ".join(parts)
     if it["kind"] == "row":
         parts = []
         for c in it["cells"]:
@@ -146,10 +157,8 @@ def build_messages(report, pings, commit_url=None, note=None, links=None, recap=
     if commit_url:
         head += f"\n[diff](<{commit_url}>)"
 
-    footer = {"text": report["title"][:200]}
     messages, current, size = [], [], 0
     for e in build_embeds(report, links):
-        e["footer"] = footer
         if current and (len(current) >= EMBEDS_MAX or size + _embed_len(e) > MESSAGE_MAX):
             messages.append({"embeds": current})
             current, size = [], 0
@@ -157,6 +166,8 @@ def build_messages(report, pings, commit_url=None, note=None, links=None, recap=
         size += _embed_len(e)
     if current:
         messages.append({"embeds": current})
+    if messages:  # le nom du planning une seule fois, sous le dernier encadré
+        messages[-1]["embeds"][-1]["footer"] = {"text": report["title"][:200]}
     if not messages:
         messages = [{}]
     messages[0]["content"] = head[:2000]
