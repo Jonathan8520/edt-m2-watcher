@@ -37,12 +37,12 @@ def short_context(context):
 
 
 def change_line(old, new):
-    """❌ retiré · ➕ ajouté · 🔁 remplacé."""
+    """🔴 retiré · 🟢 ajouté · 🟠 remplacé."""
     if not new:
-        return f"❌ ~~{esc(old)}~~"
+        return f"🔴 ~~{esc(old)}~~"
     if not old:
-        return f"➕ **{esc(new)}**"
-    return f"🔁 ~~{esc(old)}~~ → **{esc(new)}**"
+        return f"🟢 **{esc(new)}**"
+    return f"🟠 ~~{esc(old)}~~ → **{esc(new)}**"
 
 
 def format_item(it, show_tags=True):
@@ -56,7 +56,7 @@ def format_item(it, show_tags=True):
         lines = [(f"{esc(c['header'], 30)} : " if c.get("header") else "") + change_line(c["old"], c["new"])
                  for c in changes]
         return f"{prefix}**{esc(head, 60)}**\n" + "\n".join(lines)
-    sign = "➕ Ligne ajoutée" if it["kind"] == "add" else "❌ Ligne supprimée"
+    sign = "🟢 Ligne ajoutée" if it["kind"] == "add" else "🔴 Ligne supprimée"
     return f"{prefix}**{sign}**\n" + " | ".join(esc(v, 60) for v in it["cells"])
 
 
