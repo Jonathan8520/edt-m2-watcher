@@ -303,7 +303,8 @@ def report_between(datas_dir, sheet_id, old_rev, new_rev, tags):
         if old != new:
             items = diff.diff_tab(old, new, tags)
             if items:
-                events.append({"type": "cells", "tab": tab["name"], "url": "", "items": items})
+                events.append({"type": "cells", "tab": tab["name"], "url": sheets.tab_url(sheet_id, tab["gid"]),
+                               "items": items})
     return {"status": "changes", "title": meta["title"], "events": events}
 
 

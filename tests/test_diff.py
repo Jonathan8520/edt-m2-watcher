@@ -192,3 +192,17 @@ class OutsideTablesTests(unittest.TestCase):
 
     def test_explicit_mention_wins(self):
         self.assertEqual(self.edit(8, 5, "Réunion SBI"), ["SBI"])
+
+
+class EmbedUrlTests(unittest.TestCase):
+    def test_embeds_never_share_a_link(self):
+        """Discord n'affiche que le premier de deux encadrés qui ont le même lien."""
+        old = HEAD + [row("lundi 9 novembre 2026", "", "REC1 (Sofia)", "REC1 (Sofia)", "")]
+        new = HEAD + [row("lundi 9 novembre 2026", "", "REC1 (Sofia) - Assignment 1", "REC1 (Sofia) - Assignment 1", "")]
+        report = {"status": "changes", "title": "T", "events": [
+            {"type": "cells", "tab": "t", "url": "https://docs.google.com/x/edit?gid=0#gid=0",
+             "items": diff.diff_tab(old, new, TAGS)}]}
+        urls = [e["url"] for m in discord.build_messages(report, {}) for e in m["embeds"]]
+        self.assertEqual(len(urls), 2)
+        self.assertEqual(len(set(urls)), 2)
+        self.assertTrue(urls[0].endswith("&range=C5"))

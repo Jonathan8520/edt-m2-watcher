@@ -79,22 +79,37 @@ def _lines(items, show_tags):
 
 def build_embeds(report, links=None):
     """Encadrés regroupés par programme (IBI puis SBI), un par onglet ; lien d'agenda à la fin de chaque section."""
-    embeds = []
+    embeds, used = [], set()
+
+    def unique_url(url, items, prog):
+        """Discord fusionne les encadrés qui ont le même lien : chacun pointe vers sa propre cellule."""
+        if not url:
+            return None
+        ref = next((it.get("ref") for it in items if it.get("ref")), None)
+        candidate = f"{url}&range={ref}" if ref else url
+        if candidate in used:
+            candidate = f"{candidate}&p={prog}"
+        used.add(candidate)
+        return candidate
+
     cells = [ev for ev in report["events"] if ev["type"] == "cells"]
     for prog in report_tags(report):
         section = []
         for ev in cells:
             items = [it for it in ev["items"] if prog in it["tags"]]
             if items:
-                section.append({"title": f"📅 {prog} · {ev['tab']}"[:250], "url": ev["url"],
+                section.append({"title": f"📅 {prog} · {ev['tab']}"[:250], "url": unique_url(ev["url"], items, prog),
                                 "description": _lines(items, False), "color": PROGRAM_COLORS.get(prog, COLOR)})
+        for e in section:
+            if not e["url"]:
+                e.pop("url")
         if section and links and prog in links:
             section[-1]["description"] += f"\n\n[Ajouter l'emploi du temps {prog} à mon agenda]({links[prog]})"
         embeds += section
     for ev in cells:  # changements sans programme identifié (pas de mots-clés configurés)
         items = [it for it in ev["items"] if not it["tags"]]
         if items:
-            embeds.append({"title": f"📅 {ev['tab']}"[:250], "url": ev["url"],
+            embeds.append({"title": f"📅 {ev['tab']}"[:250], "url": unique_url(ev["url"], items, "x"),
                            "description": _lines(items, True), "color": COLOR})
     for ev in report["events"]:
         if ev["type"] == "tab_added":

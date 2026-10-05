@@ -183,7 +183,7 @@ def diff_tab(old, new, tags):
             if date:
                 for c in changed:
                     slot = slot_label(new, j, c) or column_header(new, layout, idx, j, c) or "note"
-                    items.append({"kind": "cell", "tags": tags_, "context": f"{date} · {slot}",
+                    items.append({"kind": "cell", "tags": tags_, "context": f"{date} · {slot}", "ref": f"{col_letter(c)}{j + 1}",
                                   "old": cell(old, i, c), "new": cell(new, j, c), "order": j})
             else:
                 end = min(span[1], width)
@@ -196,7 +196,8 @@ def diff_tab(old, new, tags):
                         row_cells.append({"value": n})
                 changed_cols = {c for c in range(span[0], end) if cell(old, i, c) != cell(new, j, c)}
                 items.append({"kind": "row", "tags": tags_, "cells": row_cells, "order": j,
-                              "key": row_key(nrow or orow, span, changed_cols)})
+                              "key": row_key(nrow or orow, span, changed_cols),
+                              "ref": f"{col_letter(min(changed_cols))}{j + 1}" if changed_cols else None})
     items.sort(key=lambda it: it["order"])
     for it in items:
         it.pop("order")
