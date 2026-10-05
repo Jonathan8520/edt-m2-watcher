@@ -31,7 +31,8 @@ SYSTEM = (
     "* MM1 retiré le 3 nov. et ajouté le 8 déc. → - MM1 est déplacé du 3 nov. au 8 déc.\n"
     "* partiel GO3 ajouté le 12 mars 14h-16h → - Partiel de GO3 ajouté le 12 mars, 14h-16h.\n"
     "* REC1 retiré les 2, 9 et 16 févr. → - REC1 est retiré les 2, 9 et 16 févr.\n"
-    "* INF4 : texte complété par « Claire DUPONT » → - Nom complet de l'enseignante d'INF4 précisé : Claire Dupont."
+    "* INF4 : précision « Claire DUPONT » ajoutée → - Nom de l'enseignante d'INF4 précisé : Claire Dupont.\n"
+    "* REC1 : précision « Assignment 1 » ajoutée le 9 nov. → - REC1 du 9 nov. : « Assignment 1 » ajouté."
 )
 
 MONTHS_SHORT = {"janvier": "janv.", "février": "févr.", "fevrier": "févr.", "mars": "mars", "avril": "avr.",
@@ -96,11 +97,11 @@ def synthesis(report):
                 changed = [n for o, n in zip(segs_old, segs_new) if o.strip() != n.strip()] \
                     if len(segs_old) == len(segs_new) else segs_new
                 codes = ", ".join(sorted({c for seg in changed for c, _ in _codes(seg)})) or "texte"
-                key = (codes, " ".join(added))
+                key = (codes, " ".join(added).strip(" -–:,"))
                 completed.setdefault(key, []).append(_short_date(it["context"].partition(" · ")[0]))
     for (codes, added), days in completed.items():
         uniq = list(dict.fromkeys(days))
-        lines.append(f"- {codes} : texte complété par « {added} » (même cours, mêmes créneaux) "
+        lines.append(f"- {codes} : précision « {added} » ajoutée (même cours, même créneau) "
                      f"sur {len(days)} cellule(s), du {uniq[0]} au {uniq[-1]}")
     for (code, partiel), entry in sorted(by_course.items(), key=lambda kv: (not kv[0][1], kv[0][0])):
         parts = [f"{verb} le {', '.join(where)}" for verb, where in entry.items() if where]
@@ -137,8 +138,8 @@ def describe(report):
     return "\n".join(head + lines)
 
 
-def _call(model, token, content):
-    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}]
+def _call(model, token, content, extra=""):
+    messages = [{"role": "system", "content": SYSTEM + extra}, {"role": "user", "content": content}]
     puter = "/drivers/call" in ENDPOINT  # API native de Puter (celle de puter.js), accessible au compte gratuit
     if puter:
         body = {"interface": "puter-chat-completion", "method": "complete",
@@ -199,27 +200,56 @@ def _for_tag(report, tag):
     return {**report, "events": events}
 
 
+JOINT = (
+    "\nLa notification a une section par programme ; tu reçois leurs changements séparément.\n"
+    "Réponds UNIQUEMENT avec un objet JSON, par exemple {\"IBI\": [\"point\", \"point\"], \"SBI\": [\"point\"]} : "
+    "pour chaque programme, 1 à 4 points (sans tiret au début), en respectant les règles ci-dessus.\n"
+    "Si un même changement apparaît dans plusieurs programmes, formule-le mot pour mot de la même façon dans chacun, "
+    "en adaptant seulement la date ou l'horaire s'ils diffèrent."
+)
+
+
+def _parse_joint(text, tags):
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return {}
+    try:
+        data = json.loads(m.group(0))
+    except ValueError:
+        return {}
+    out = {}
+    for tag in tags:
+        points = data.get(tag) or data.get(tag.lower()) or []
+        if isinstance(points, str):
+            points = [points]
+        points = [re.sub(r"^[-•*]\s*", "", str(p)).strip("\"'«» ") for p in points if str(p).strip()]
+        if points:
+            out[tag] = [p[:200] for p in points[:5]]
+    return out
+
+
 def bullets(report, token):
-    """Points de résumé par programme : {"IBI": [...], "SBI": [...]} ({} si l'IA ne répond pas)."""
+    """Points de résumé par programme : {"IBI": [...], "SBI": [...]} ({} si l'IA ne répond pas).
+
+    Un seul appel pour tous les programmes, pour qu'un même changement soit formulé pareil partout."""
     if not token or report.get("status") not in ("changes", "access_restored") or not report["events"]:
         return {}
     tags = sorted({t for ev in report["events"] for it in ev.get("items", []) for t in it["tags"]})
-    out = {}
-    for tag in tags:
-        sub = _for_tag(report, tag)
-        if not sub["events"]:
+    subs = {t: _for_tag(report, t) for t in tags}
+    subs = {t: sub for t, sub in subs.items() if sub["events"]}
+    if not subs:
+        return {}
+    content = "\n\n".join(f"## {t}\n{describe(sub)}" for t, sub in subs.items())
+    for model in MODELS:
+        try:
+            out = _parse_joint(_call(model, token, content, extra=JOINT), list(subs))
+        except urllib.error.HTTPError as e:
+            print(f"::warning::Résumé IA ({model}) : HTTP {e.code} {e.read()[:200]!r}")
             continue
-        content = describe(sub)
-        for model in MODELS:
-            try:
-                points = _bullet_lines(_call(model, token, content))
-            except urllib.error.HTTPError as e:
-                print(f"::warning::Résumé IA ({model}) : HTTP {e.code} {e.read()[:200]!r}")
-                continue
-            except Exception as e:
-                print(f"::warning::Résumé IA ({model}) : {e}")
-                continue
-            if points:
-                out[tag] = [p[:200] for p in points]
-                break
-    return out
+        except Exception as e:
+            print(f"::warning::Résumé IA ({model}) : {e}")
+            continue
+        if out:
+            return out
+        print(f"::warning::Résumé IA ({model}) : réponse illisible")
+    return {}
