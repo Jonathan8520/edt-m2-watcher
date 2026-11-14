@@ -1,6 +1,7 @@
 name: Corriger un message
 
 # Lancement manuel : réécrit la phrase d'une notification déjà envoyée (modification Discord, sans nouvelle notification).
+# Repo public : en mode « Afficher seulement », le texte apparaît dans les logs, supprimer le run après lecture.
 on:
   workflow_dispatch:
     inputs:
@@ -19,7 +20,7 @@ permissions:
   contents: read
 
 env:
-  SHEET_IDS: ${{ vars.SHEET_IDS || 'ID_DU_SHEET' }}
+  SHEET_IDS: ${{ secrets.SHEET_IDS }}
   WATCH_TAGS: IBI,SBI
 
 jobs:
@@ -30,17 +31,18 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
         with:
-          ref: datas
+          repository: ${{ github.repository_owner }}/edt-m2-watcher-data
+          token: ${{ secrets.DATA_TOKEN }}
           path: datas
           fetch-depth: 0
       - name: Réécriture du message
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_PINGS: ${{ vars.DISCORD_PINGS }}
+          DISCORD_PINGS: ${{ secrets.DISCORD_PINGS }}
           RECAP_API_KEY: ${{ secrets.RECAP_API_KEY }}
           RECAP_MODELS: ${{ vars.RECAP_MODELS }}
           RECAP_ENDPOINT: ${{ vars.RECAP_ENDPOINT }}
-          ICS_GIST_ID: ${{ vars.ICS_GIST_ID }}
+          ICS_GIST_ID: ${{ secrets.ICS_GIST_ID }}
           MESSAGE_ID: ${{ inputs.message_id }}
           PHRASE: ${{ inputs.phrase }}
           DRY_RUN: ${{ inputs.dry_run }}

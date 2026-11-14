@@ -42,12 +42,13 @@ def summary(reports):
     target = os.environ.get("GITHUB_STEP_SUMMARY")
     if not target:
         return
+    # repo public : le résumé de l'exécution donne seulement le nombre de changements par onglet,
+    # le détail (cours, enseignants) reste dans Discord et dans le repo privé
     out = []
     for rep in reports:
-        out.append(f"### {rep['title']} : {rep['status']}")
+        out.append(f"### {rep['status']}")
         for ev in rep["events"]:
-            out.append(f"**{ev['type']} · {ev['tab']}**")
-            out += [f"- {discord.format_item(it)}" for it in ev.get("items", [])]
+            out.append(f"- {ev['tab']} : {len(ev.get('items', []))} changement(s)")
     with open(target, "a", encoding="utf-8") as f:
         f.write("\n".join(out) + "\n")
 
@@ -67,6 +68,14 @@ def migrate_legacy(root, sheet_ids):
     return True
 
 
+def for_logs(text, *ids):
+    """Repo public : retire les adresses et les identifiants de sheet avant d'écrire dans les logs."""
+    text = re.sub(r"https?://\S+", "<adresse>", str(text))
+    for i in ids:
+        text = text.replace(i, "<sheet>")
+    return text
+
+
 def scan_sheet(sheet_id, state, tags):
     """Retourne (fichiers_modifiés, rapport|None, résumé_commit|None) pour un sheet."""
     meta_path = state / "meta.json"
@@ -78,7 +87,7 @@ def scan_sheet(sheet_id, state, tags):
             grids[gid] = sheets.fetch_tab(sheet_id, gid)
             time.sleep(0.5)
     except sheets.TransientError as e:
-        print(f"::warning::{sheet_id} : lecture impossible pour ce passage : {e}")
+        print(f"::warning::Sheet : lecture impossible pour ce passage : {for_logs(e, sheet_id)}")
         return False, None, None
     except sheets.AccessLost as e:
         if meta and not meta.get("access_lost"):
@@ -86,7 +95,7 @@ def scan_sheet(sheet_id, state, tags):
             write_json(meta_path, meta)
             return True, {"status": "access_lost", "title": meta["title"], "reason": str(e), "events": []}, \
                 f"{meta['title']} inaccessible"
-        print(f"::warning::{sheet_id} : toujours inaccessible : {e}")
+        print(f"::warning::Sheet toujours inaccessible : {for_logs(e, sheet_id)}")
         return False, None, None
 
     new_meta = {"sheet_id": sheet_id, "title": title, "access_lost": False,
@@ -207,11 +216,9 @@ def cmd_notify(args):
     payloads = []
     for rep in report["sheets"]:
         phrase = recap.bullets(rep, models_token)
-        print(f"Résumé : {phrase}")
         payloads += discord.build_messages(rep, pings, commit_url, args.note, links, phrase)
     if not webhook:
-        print("::warning::Secret DISCORD_WEBHOOK_URL absent : notification ignorée")
-        print(json.dumps(payloads, ensure_ascii=False, indent=1))
+        print(f"::warning::Secret DISCORD_WEBHOOK_URL absent : {len(payloads)} message(s) non envoyé(s)")
         return
     ids = []
     for i, payload in enumerate(payloads):

@@ -6,16 +6,19 @@ on:
     - cron: "17 21,23,1,3 * * *"   # toutes les 2 h la nuit (horaires en UTC)
   workflow_dispatch:
 
+# Repo public : l'ID du sheet, le gist et les pings sont des secrets (masqués dans les logs),
+# l'état du planning vit dans le repo privé edt-m2-watcher-data.
 permissions:
-  contents: write
+  contents: read
+  actions: write   # garde le planifié actif (voir la dernière étape)
 
 concurrency:
   group: edt-watch
   cancel-in-progress: false
 
 env:
-  # plusieurs sheets possibles (variable SHEET_IDS, séparés par des virgules), chacun avec son état dans datas/state/<id>
-  SHEET_IDS: ${{ vars.SHEET_IDS || 'ID_DU_SHEET' }}
+  # plusieurs sheets possibles (secret SHEET_IDS, séparés par des virgules), chacun avec son état dans state/<id>
+  SHEET_IDS: ${{ secrets.SHEET_IDS }}
   WATCH_TAGS: IBI,SBI
 
 jobs:
@@ -25,10 +28,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Checkout de la branche datas
+      - name: Checkout de l'état (repo privé)
         uses: actions/checkout@v7
         with:
-          ref: datas
+          repository: ${{ github.repository_owner }}/edt-m2-watcher-data
+          token: ${{ secrets.DATA_TOKEN }}
           path: datas
 
       - name: Relevé du sheet
@@ -53,26 +57,44 @@ jobs:
         if: steps.scan.outputs.notify == 'true'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_PINGS: ${{ vars.DISCORD_PINGS }}
-          ICS_GIST_ID: ${{ vars.ICS_GIST_ID }}
+          DISCORD_PINGS: ${{ secrets.DISCORD_PINGS }}
+          ICS_GIST_ID: ${{ secrets.ICS_GIST_ID }}
           RECAP_API_KEY: ${{ secrets.RECAP_API_KEY }}
           RECAP_MODELS: ${{ vars.RECAP_MODELS }}
           RECAP_ENDPOINT: ${{ vars.RECAP_ENDPOINT }}
           PREV_SHA: ${{ steps.commit.outputs.prev }}
         run: python3 -m watcher notify --report "$RUNNER_TEMP/watch/report.json" --ics-dir datas/ics --log datas/state/messages.jsonl
 
-      - name: Push sur datas
+      - name: Push de l'état
         if: steps.commit.outputs.sha != ''
         working-directory: datas
         run: |
           # ajoute le journal des messages au commit du changement, puis pousse
           git add -A
           git diff --cached --quiet || git commit -q --amend --no-edit
-          git push -q origin HEAD:datas
+          git push -q origin HEAD:main
 
       # abonnement calendrier : copie les .ics dans le gist secret (seulement ce qui a changé)
       - name: Publication des calendriers
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-          ICS_GIST_ID: ${{ vars.ICS_GIST_ID }}
+          ICS_GIST_ID: ${{ secrets.ICS_GIST_ID }}
         run: python3 -m watcher gist --dir datas/ics
+
+      # Sur un repo public, GitHub coupe le planifié après 60 jours sans commit sur main.
+      # Les commits partent dans le repo privé : on réactive donc le workflow nous-mêmes,
+      # ce qui remet le compteur à zéro (un passage de nuit suffit largement).
+      - name: Garder le planifié actif
+        if: github.event.schedule == '17 21,23,1,3 * * *'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import os, urllib.request
+          url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/surveillance.yml/enable"
+          req = urllib.request.Request(url, method="PUT", headers={
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"})
+          urllib.request.urlopen(req, timeout=20)
+          print("Workflow réactivé.")
+          PY
